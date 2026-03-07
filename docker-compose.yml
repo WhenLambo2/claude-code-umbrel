@@ -15,7 +15,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    entrypoint: ["ttyd", "--writable", "--port", "7681", "--ping-interval", "30", "--max-clients", "5", "/bin/bash", "-c", "claude --dangerously-skip-permissions; exec /bin/bash"]
+    entrypoint: ["ttyd", "--writable", "--port", "7681", "--ping-interval", "30", "--max-clients", "5", "su", "-s", "/bin/bash", "-c", "claude --dangerously-skip-permissions; exec /bin/bash", "node"]
     environment:
       - HOME=/home/node
       - TERM=xterm-256color
