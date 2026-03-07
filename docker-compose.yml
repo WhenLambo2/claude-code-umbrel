@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  claude-code:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: claude-code
+    restart: unless-stopped
+    ports:
+      - "7681:7681"
+    user: root
+    tty: true
+    stdin_open: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    entrypoint: ["ttyd", "--writable", "--port", "7681", "--ping-interval", "30", "--max-clients", "5", "/bin/bash", "-c", "claude --dangerously-skip-permissions; exec /bin/bash"]
+    environment:
+      - HOME=/home/node
+      - TERM=xterm-256color
+      - NODE_OPTIONS=--max-old-space-size=4096
+      - CLAUDE_CONFIG_DIR=/home/node/.claude
+      - ENABLE_FIREWALL=false
+    volumes:
+      - claude-config:/home/node/.claude
+      - claude-history:/commandhistory
+      - claude-workspace:/workspace
+      - /mnt/ai-cos:/workspace/ai-cos
+
+volumes:
+  claude-config:
+    name: claude-config
+  claude-history:
+    name: claude-history
+  claude-workspace:
+    name: claude-workspace
