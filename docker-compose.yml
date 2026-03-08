@@ -27,6 +27,10 @@ services:
       - claude-history:/commandhistory
       - claude-workspace:/workspace
       - /mnt/ai-cos:/workspace/ai-cos
+      - /mnt/openclaw-config:/workspace/openclaw-config
+      - /mnt/home-assistant:/workspace/home-assistant
+      - /mnt/pi-hole:/workspace/pi-hole
+      - /mnt/tailscale:/workspace/tailscale
 
 volumes:
   claude-config:
