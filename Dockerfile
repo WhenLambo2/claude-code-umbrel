@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   jq \
   nano \
   vim \
+  tmux \
   cmake \
   g++ \
   pkg-config \
@@ -33,15 +34,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libssl-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install ttyd from source for web terminal access
+# Install ttyd binary for web terminal access
 ARG TTYD_VERSION=1.7.7
-RUN cd /tmp && \
-  wget "https://github.com/nicm/tmux/releases/download/3.3a/tmux-3.3a.tar.gz" -O /dev/null 2>&1 || true && \
-  wget "https://github.com/nicm/tmux/releases/download/3.4/tmux-3.4.tar.gz" -O /dev/null 2>&1 || true && \
-  wget "https://github.com/nicm/tmux/releases/download/3.5/tmux-3.5.tar.gz" -O /dev/null 2>&1 || true && \
-  ARCH=$(dpkg --print-architecture) && \
+RUN ARCH=$(dpkg --print-architecture) && \
   if [ "$ARCH" = "amd64" ]; then TTYD_ARCH="x86_64"; else TTYD_ARCH="$ARCH"; fi && \
-  wget "https://github.com/nicm/tmux/releases/download/3.5/tmux-3.5.tar.gz" -O /dev/null 2>&1 || true && \
   wget "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${TTYD_ARCH}" -O /usr/local/bin/ttyd && \
   chmod +x /usr/local/bin/ttyd
 
@@ -107,9 +103,10 @@ RUN chmod +x /usr/local/bin/init-firewall.sh && \
   echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
   chmod 0440 /etc/sudoers.d/node-firewall
 
-# Copy entrypoint
+# Copy entrypoint and session attach script
 COPY entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY attach-session.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/attach-session.sh
 
 USER node
 

@@ -15,7 +15,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    entrypoint: ["/bin/sh", "-c", "/workspace/ai-cos/system/run-bot.sh & exec ttyd --writable --port 7681 --ping-interval 30 --max-clients 5 su -s /bin/bash -c 'claude --dangerously-skip-permissions; exec /bin/bash' node"]
+    entrypoint: ["/bin/sh", "-c", "/workspace/ai-cos/system/run-bot.sh & exec ttyd --writable --port 7681 --ping-interval 30 --max-clients 5 /usr/local/bin/attach-session.sh"]
     environment:
       - HOME=/home/node
       - TERM=xterm-256color
@@ -26,11 +26,7 @@ services:
       - claude-config:/home/node/.claude
       - claude-history:/commandhistory
       - claude-workspace:/workspace
-      - /mnt/ai-cos:/workspace/ai-cos
-      - /mnt/openclaw-config:/workspace/openclaw-config
-      - /mnt/home-assistant:/workspace/home-assistant
-      - /mnt/pi-hole:/workspace/pi-hole
-      - /mnt/tailscale:/workspace/tailscale
+      - /mnt/umbrel/home/ai-cos:/workspace/ai-cos
 
 volumes:
   claude-config:
