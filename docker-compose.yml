@@ -26,7 +26,11 @@ services:
       - claude-config:/home/node/.claude
       - claude-history:/commandhistory
       - claude-workspace:/workspace
-      - /mnt/umbrel/home/ai-cos:/workspace/ai-cos
+      - /mnt/ai-cos:/workspace/ai-cos
+      - /mnt/openclaw-config:/workspace/ai-cos/mounts/openclaw-config
+      - /mnt/home-assistant:/workspace/ai-cos/mounts/home-assistant
+      - /mnt/pi-hole:/workspace/ai-cos/mounts/pi-hole
+      - /mnt/tailscale:/workspace/ai-cos/mounts/tailscale
 
 volumes:
   claude-config:
