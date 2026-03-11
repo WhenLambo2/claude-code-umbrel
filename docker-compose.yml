@@ -12,6 +12,9 @@ services:
     user: root
     tty: true
     stdin_open: true
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
     cap_add:
       - NET_ADMIN
       - NET_RAW
