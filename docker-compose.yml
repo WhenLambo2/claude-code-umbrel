@@ -5,6 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Use host network at BUILD time so apt-get update can resolve DNS.
+      # (network_mode: host below only applies at runtime.)
+      network: host
     container_name: claude-code
     restart: unless-stopped
     network_mode: host
