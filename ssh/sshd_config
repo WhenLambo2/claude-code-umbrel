@@ -1,0 +1,33 @@
+# sshd_config — minimal pubkey-only SSH for Claude Code container.
+# Used by start-services.sh at startup.
+
+Port 2222
+
+# Host keys come from the persistent bind mount so they survive rebuilds.
+# start-services.sh creates /workspace/ai-cos/system/state/ssh-host-keys/
+# and symlinks its contents into /etc/ssh/.
+HostKey /workspace/ai-cos/system/state/ssh-host-keys/ssh_host_ed25519_key
+HostKey /workspace/ai-cos/system/state/ssh-host-keys/ssh_host_rsa_key
+
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+UsePAM no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+
+AllowUsers node
+
+AuthorizedKeysFile /home/node/.ssh/authorized_keys
+
+# Subsystem for sftp (rarely used but nice to have for file transfer from Termius)
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+LogLevel VERBOSE
+PrintMotd no
+PrintLastLog yes
+
+# Allow tmux attach over SSH to stay responsive even on flaky mobile links
+ClientAliveInterval 30
+ClientAliveCountMax 10

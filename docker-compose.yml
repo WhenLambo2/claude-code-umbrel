@@ -17,7 +17,8 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    entrypoint: ["/bin/sh", "-c", "/workspace/ai-cos/system/run-bot.sh & exec ttyd --writable --port 7681 --ping-interval 30 --max-clients 5 /usr/local/bin/attach-session.sh"]
+    # start-services.sh handles: run-bot.sh (bg) + sshd (2222) + ttyd side (7682) + ttyd main (7681, fg)
+    entrypoint: ["/usr/local/bin/start-services.sh"]
     environment:
       - HOME=/home/node
       - TERM=xterm-256color
