@@ -1,0 +1,28 @@
+Port 2222
+AddressFamily any
+ListenAddress 0.0.0.0
+
+# Host keys persisted in bind mount
+HostKey /workspace/ai-cos/system/state/ssh-host-keys/ssh_host_ed25519_key
+HostKey /workspace/ai-cos/system/state/ssh-host-keys/ssh_host_rsa_key
+
+# Authentication: pubkey only, no passwords
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+UsePAM no
+
+# Allow node user only
+AllowUsers node
+
+# Subsystems
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# Keep connections alive
+ClientAliveInterval 60
+ClientAliveCountMax 3
+
+PrintMotd no
+AcceptEnv LANG LC_*

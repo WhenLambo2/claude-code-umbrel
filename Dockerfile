@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libwebsockets-dev \
   libjson-c-dev \
   libssl-dev \
+  openssh-server \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install ttyd binary for web terminal access
@@ -103,16 +104,29 @@ RUN chmod +x /usr/local/bin/init-firewall.sh && \
   echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
   chmod 0440 /etc/sudoers.d/node-firewall
 
-# Copy entrypoint and session attach script
+# Copy all scripts
 COPY entrypoint.sh /usr/local/bin/
 COPY attach-session.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/attach-session.sh
+COPY attach-session-main.sh /usr/local/bin/
+COPY attach-session-side.sh /usr/local/bin/
+COPY start-services.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+  /usr/local/bin/attach-session.sh \
+  /usr/local/bin/attach-session-main.sh \
+  /usr/local/bin/attach-session-side.sh \
+  /usr/local/bin/start-services.sh
+
+# SSH config: pubkey-only auth on port 2222
+COPY ssh/sshd_config /etc/ssh/sshd_config
+RUN mkdir -p /run/sshd /home/node/.ssh && \
+  chown -R node:node /home/node/.ssh && \
+  chmod 700 /home/node/.ssh
 
 USER node
 
-EXPOSE 7681
+EXPOSE 7681 7682 2222
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD wget -q --spider http://127.0.0.1:7681/ || exit 1
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/start-services.sh"]
