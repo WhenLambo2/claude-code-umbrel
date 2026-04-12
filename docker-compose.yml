@@ -5,9 +5,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # Use host network at BUILD time so apt-get update can resolve DNS.
-      # (network_mode: host below only applies at runtime.)
-      network: host
     container_name: claude-code
     restart: unless-stopped
     network_mode: host
@@ -20,8 +17,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    # start-services.sh handles: run-bot.sh (bg) + sshd (2222) + ttyd side (7682) + ttyd main (7681, fg)
-    entrypoint: ["/usr/local/bin/start-services.sh"]
+    entrypoint: ["/bin/sh", "-c", "/workspace/ai-cos/system/run-bot.sh & exec ttyd --writable --port 7681 --ping-interval 30 --max-clients 5 /usr/local/bin/attach-session.sh"]
     environment:
       - HOME=/home/node
       - TERM=xterm-256color
