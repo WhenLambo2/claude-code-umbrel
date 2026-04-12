@@ -1,0 +1,269 @@
+From 560549fd863dbe8ec8b82b574bbdcbacf01aaaf5 Mon Sep 17 00:00:00 2001
+From: Claude Code <claude-code@local>
+Date: Sat, 11 Apr 2026 18:04:50 +0200
+Subject: [PATCH] Add SSH on 2222 + parallel ttyd side session (claude-main +
+ claude-side)
+
+- Dockerfile: install openssh-server, bake sshd_config + authorized_keys,
+  expose 7681 7682 2222, switch ENTRYPOINT to start-services.sh
+- docker-compose.yml: point entrypoint at start-services.sh
+- start-services.sh: orchestrates run-bot.sh (bg), sshd (2222), ttyd side (7682), ttyd main (7681 fg)
+- attach-session-main.sh / attach-session-side.sh: two independent tmux sessions (claude-main, claude-side)
+- ssh/sshd_config: minimal pubkey-only, node user, host keys persisted in /workspace/ai-cos/system/state/ssh-host-keys/
+- ssh/authorized_keys: placeholder for Jos's public keys
+---
+ Dockerfile             | 23 ++++++++++---
+ attach-session-main.sh | 12 +++++++
+ attach-session-side.sh | 14 ++++++++
+ docker-compose.yml     |  3 +-
+ ssh/authorized_keys    | 15 +++++++++
+ ssh/sshd_config        | 33 +++++++++++++++++++
+ start-services.sh      | 73 ++++++++++++++++++++++++++++++++++++++++++
+ 7 files changed, 168 insertions(+), 5 deletions(-)
+ create mode 100644 attach-session-main.sh
+ create mode 100644 attach-session-side.sh
+ create mode 100644 ssh/authorized_keys
+ create mode 100644 ssh/sshd_config
+ create mode 100644 start-services.sh
+
+diff --git a/Dockerfile b/Dockerfile
+index 3db2e84..2c393de 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
+   libwebsockets-dev \
+   libjson-c-dev \
+   libssl-dev \
++  openssh-server \
+   && apt-get clean && rm -rf /var/lib/apt/lists/*
+ 
+ # Install ttyd binary for web terminal access
+@@ -103,16 +104,30 @@ RUN chmod +x /usr/local/bin/init-firewall.sh && \
+   echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
+   chmod 0440 /etc/sudoers.d/node-firewall
+ 
+-# Copy entrypoint and session attach script
++# Copy entrypoint, session attach scripts, and start-services orchestrator
+ COPY entrypoint.sh /usr/local/bin/
+ COPY attach-session.sh /usr/local/bin/
+-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/attach-session.sh
++COPY attach-session-main.sh /usr/local/bin/
++COPY attach-session-side.sh /usr/local/bin/
++COPY start-services.sh /usr/local/bin/
++RUN chmod +x /usr/local/bin/entrypoint.sh \
++              /usr/local/bin/attach-session.sh \
++              /usr/local/bin/attach-session-main.sh \
++              /usr/local/bin/attach-session-side.sh \
++              /usr/local/bin/start-services.sh
++
++# SSH server config (pubkey-only, port 2222) + authorized_keys baked into image
++COPY ssh/sshd_config /etc/ssh/sshd_config
++COPY ssh/authorized_keys /usr/local/share/ssh/authorized_keys
++RUN mkdir -p /run/sshd /home/node/.ssh && \
++    chown -R node:node /home/node/.ssh && \
++    chmod 700 /home/node/.ssh
+ 
+ USER node
+ 
+-EXPOSE 7681
++EXPOSE 7681 7682 2222
+ 
+ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+   CMD wget -q --spider http://127.0.0.1:7681/ || exit 1
+ 
+-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
++ENTRYPOINT ["/usr/local/bin/start-services.sh"]
+diff --git a/attach-session-main.sh b/attach-session-main.sh
+new file mode 100644
+index 0000000..0061bf9
+--- /dev/null
++++ b/attach-session-main.sh
+@@ -0,0 +1,12 @@
++#!/bin/bash
++# attach-session-main.sh
++# Called by ttyd on port 7681 / Tailscale HTTPS 8443.
++# Attaches to the primary tmux session "claude-main" or creates it.
++
++TMUX_SESSION="claude-main"
++
++if su -s /bin/bash -c "tmux has-session -t $TMUX_SESSION" node 2>/dev/null; then
++  exec su -s /bin/bash -c "tmux attach-session -t $TMUX_SESSION" node
++else
++  exec su -s /bin/bash -c "tmux new-session -s $TMUX_SESSION 'claude --dangerously-skip-permissions; exec /bin/bash'" node
++fi
+diff --git a/attach-session-side.sh b/attach-session-side.sh
+new file mode 100644
+index 0000000..1496dfa
+--- /dev/null
++++ b/attach-session-side.sh
+@@ -0,0 +1,14 @@
++#!/bin/bash
++# attach-session-side.sh
++# Called by ttyd on port 7682.
++# Attaches to the parallel tmux session "claude-side" or creates it.
++# Used for running a second, independent Claude Code conversation
++# alongside the main one (e.g. for side explorations, mobile, etc.).
++
++TMUX_SESSION="claude-side"
++
++if su -s /bin/bash -c "tmux has-session -t $TMUX_SESSION" node 2>/dev/null; then
++  exec su -s /bin/bash -c "tmux attach-session -t $TMUX_SESSION" node
++else
++  exec su -s /bin/bash -c "tmux new-session -s $TMUX_SESSION 'claude --dangerously-skip-permissions; exec /bin/bash'" node
++fi
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 2a9109d..03f70bf 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -17,7 +17,8 @@ services:
+     cap_add:
+       - NET_ADMIN
+       - NET_RAW
+-    entrypoint: ["/bin/sh", "-c", "/workspace/ai-cos/system/run-bot.sh & exec ttyd --writable --port 7681 --ping-interval 30 --max-clients 5 /usr/local/bin/attach-session.sh"]
++    # start-services.sh handles: run-bot.sh (bg) + sshd (2222) + ttyd side (7682) + ttyd main (7681, fg)
++    entrypoint: ["/usr/local/bin/start-services.sh"]
+     environment:
+       - HOME=/home/node
+       - TERM=xterm-256color
+diff --git a/ssh/authorized_keys b/ssh/authorized_keys
+new file mode 100644
+index 0000000..0704e79
+--- /dev/null
++++ b/ssh/authorized_keys
+@@ -0,0 +1,15 @@
++# authorized_keys — SSH public keys that can log into the Claude Code container
++# as the `node` user over port 2222.
++#
++# Format: one key per line. Comments (#) allowed.
++# Keep this file in git so changes are reviewable.
++#
++# Add a key by pasting it in the form:
++#   ssh-ed25519 AAAA...base64... jos@device
++#
++# After editing this file and pushing, Portainer will redeploy the container
++# and the key will be active on next SSH connect.
++
++# --- placeholder: add your keys below ---
++# ssh-ed25519 AAAAC3Nz...  jos-laptop
++# ssh-ed25519 AAAAC3Nz...  jos-iphone
+diff --git a/ssh/sshd_config b/ssh/sshd_config
+new file mode 100644
+index 0000000..45c0b95
+--- /dev/null
++++ b/ssh/sshd_config
+@@ -0,0 +1,33 @@
++# sshd_config — minimal pubkey-only SSH for Claude Code container.
++# Used by start-services.sh at startup.
++
++Port 2222
++
++# Host keys come from the persistent bind mount so they survive rebuilds.
++# start-services.sh creates /workspace/ai-cos/system/state/ssh-host-keys/
++# and symlinks its contents into /etc/ssh/.
++HostKey /workspace/ai-cos/system/state/ssh-host-keys/ssh_host_ed25519_key
++HostKey /workspace/ai-cos/system/state/ssh-host-keys/ssh_host_rsa_key
++
++PermitRootLogin no
++PasswordAuthentication no
++KbdInteractiveAuthentication no
++ChallengeResponseAuthentication no
++UsePAM no
++PubkeyAuthentication yes
++AuthenticationMethods publickey
++
++AllowUsers node
++
++AuthorizedKeysFile /home/node/.ssh/authorized_keys
++
++# Subsystem for sftp (rarely used but nice to have for file transfer from Termius)
++Subsystem sftp /usr/lib/openssh/sftp-server
++
++LogLevel VERBOSE
++PrintMotd no
++PrintLastLog yes
++
++# Allow tmux attach over SSH to stay responsive even on flaky mobile links
++ClientAliveInterval 30
++ClientAliveCountMax 10
+diff --git a/start-services.sh b/start-services.sh
+new file mode 100644
+index 0000000..fb46761
+--- /dev/null
++++ b/start-services.sh
+@@ -0,0 +1,73 @@
++#!/bin/bash
++# start-services.sh — orchestrates every long-running process inside the
++# Claude Code container. Replaces the inline entrypoint in docker-compose.yml.
++#
++# Started services (in order):
++#   1. Bot runner (run-bot.sh if present)
++#   2. sshd on port 2222 (pubkey auth, node user, host keys persisted in /workspace)
++#   3. ttyd on port 7682 → tmux session "claude-side"  (parallel session)
++#   4. ttyd on port 7681 → tmux session "claude-main"  (primary, foreground)
++#
++# Any service that fails to start is logged to /tmp/start-services.log and the
++# script continues — we never want one failed helper to take down Claude Code.
++
++set -e
++exec 1> >(tee -a /tmp/start-services.log) 2>&1
++echo "[$(date -Iseconds)] start-services.sh launching"
++
++# ── 1. Bot runner ─────────────────────────────────────────────────────────────
++BOT_SCRIPT=/workspace/ai-cos/system/run-bot.sh
++if [ -x "$BOT_SCRIPT" ]; then
++  echo "→ starting run-bot.sh"
++  "$BOT_SCRIPT" &
++else
++  echo "→ run-bot.sh not found or not executable — skipping"
++fi
++
++# ── 2. SSH host keys (persisted in bind mount) ────────────────────────────────
++SSH_KEY_DIR=/workspace/ai-cos/system/state/ssh-host-keys
++mkdir -p "$SSH_KEY_DIR"
++chmod 700 "$SSH_KEY_DIR"
++
++if [ ! -f "$SSH_KEY_DIR/ssh_host_ed25519_key" ]; then
++  echo "→ generating new SSH host keys (first-time)"
++  ssh-keygen -t ed25519 -f "$SSH_KEY_DIR/ssh_host_ed25519_key" -N "" -q
++  ssh-keygen -t rsa -b 4096 -f "$SSH_KEY_DIR/ssh_host_rsa_key" -N "" -q
++fi
++chmod 600 "$SSH_KEY_DIR"/*_key
++chmod 644 "$SSH_KEY_DIR"/*_key.pub
++
++# ── 3. authorized_keys → node user ────────────────────────────────────────────
++AUTH_KEYS_SRC=/usr/local/share/ssh/authorized_keys
++AUTH_KEYS_DST=/home/node/.ssh/authorized_keys
++if [ -f "$AUTH_KEYS_SRC" ]; then
++  mkdir -p /home/node/.ssh
++  chown node:node /home/node/.ssh
++  chmod 700 /home/node/.ssh
++  cp "$AUTH_KEYS_SRC" "$AUTH_KEYS_DST"
++  chown node:node "$AUTH_KEYS_DST"
++  chmod 600 "$AUTH_KEYS_DST"
++  keycount=$(grep -cE '^(ssh-|ecdsa-)' "$AUTH_KEYS_DST" || echo 0)
++  echo "→ installed $keycount SSH public key(s) for node user"
++else
++  echo "→ WARNING: no authorized_keys file found at $AUTH_KEYS_SRC — SSH will refuse all logins"
++fi
++
++# ── 4. sshd ──────────────────────────────────────────────────────────────────
++mkdir -p /run/sshd
++/usr/sbin/sshd -f /etc/ssh/sshd_config -D &
++SSHD_PID=$!
++echo "→ sshd started on port 2222 (pid $SSHD_PID)"
++
++# ── 5. ttyd side session (port 7682) ──────────────────────────────────────────
++ttyd --writable --port 7682 --ping-interval 30 --max-clients 5 \
++  --title "Claude Code (side)" \
++  /usr/local/bin/attach-session-side.sh &
++TTYD_SIDE_PID=$!
++echo "→ ttyd side session started on port 7682 (pid $TTYD_SIDE_PID)"
++
++# ── 6. ttyd main session (port 7681, foreground — this keeps the container alive) ──
++echo "→ ttyd main session starting on port 7681 (foreground)"
++exec ttyd --writable --port 7681 --ping-interval 30 --max-clients 5 \
++  --title "Claude Code (main)" \
++  /usr/local/bin/attach-session-main.sh
+-- 
+2.39.5
+

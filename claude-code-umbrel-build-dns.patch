@@ -1,0 +1,30 @@
+From 1d1d5d222c76016269d681e7a866109a5cd5981d Mon Sep 17 00:00:00 2001
+From: Claude Code <claude-code@local>
+Date: Sat, 11 Apr 2026 19:51:47 +0200
+Subject: [PATCH] build: use host network at build time so apt-get DNS works
+
+The build was failing at step 2 (apt-get update) because the docker build
+bridge network couldn't resolve deb.debian.org. The runtime network_mode:
+host fixes runtime DNS but not build-time DNS. Adding 'network: host' to
+the build block makes the image build use the DinD's host network too.
+---
+ docker-compose.yml | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 03f70bf..2853774 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -5,6 +5,9 @@ services:
+     build:
+       context: .
+       dockerfile: Dockerfile
++      # Use host network at BUILD time so apt-get update can resolve DNS.
++      # (network_mode: host below only applies at runtime.)
++      network: host
+     container_name: claude-code
+     restart: unless-stopped
+     network_mode: host
+-- 
+2.39.5
+
